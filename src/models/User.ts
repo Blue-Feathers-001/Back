@@ -7,10 +7,21 @@ export interface IUser extends Document {
   password?: string;
   phone?: string;
   role: 'admin' | 'user';
-  membershipStatus: 'active' | 'inactive' | 'expired';
+  membershipStatus: 'active' | 'inactive' | 'expired' | 'grace_period';
+  membershipPackage?: mongoose.Types.ObjectId;
   membershipPlan?: string;
   membershipStartDate?: Date;
   membershipEndDate?: Date;
+  gracePeriodEndDate?: Date;
+  autoRenewal: boolean;
+  paymentHistory: mongoose.Types.ObjectId[];
+  lastPaymentDate?: Date;
+  notificationPreferences: {
+    email: boolean;
+    sms: boolean;
+    inApp: boolean;
+    reminderDays: number[];
+  };
   googleId?: string;
   authProvider?: 'local' | 'google';
   avatar?: string;
@@ -19,6 +30,8 @@ export interface IUser extends Document {
   createdAt: Date;
   updatedAt: Date;
   comparePassword(candidatePassword: string): Promise<boolean>;
+  getDaysUntilExpiry(): number;
+  isInGracePeriod(): boolean;
 }
 
 const UserSchema: Schema = new Schema(
@@ -63,8 +76,12 @@ const UserSchema: Schema = new Schema(
     },
     membershipStatus: {
       type: String,
-      enum: ['active', 'inactive', 'expired'],
+      enum: ['active', 'inactive', 'expired', 'grace_period'],
       default: 'inactive',
+    },
+    membershipPackage: {
+      type: Schema.Types.ObjectId,
+      ref: 'MembershipPackage',
     },
     membershipPlan: {
       type: String,
@@ -75,6 +92,40 @@ const UserSchema: Schema = new Schema(
     },
     membershipEndDate: {
       type: Date,
+    },
+    gracePeriodEndDate: {
+      type: Date,
+    },
+    autoRenewal: {
+      type: Boolean,
+      default: false,
+    },
+    paymentHistory: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'Payment',
+      },
+    ],
+    lastPaymentDate: {
+      type: Date,
+    },
+    notificationPreferences: {
+      email: {
+        type: Boolean,
+        default: true,
+      },
+      sms: {
+        type: Boolean,
+        default: false,
+      },
+      inApp: {
+        type: Boolean,
+        default: true,
+      },
+      reminderDays: {
+        type: [Number],
+        default: [7, 3, 1],
+      },
     },
     resetPasswordToken: {
       type: String,
@@ -103,6 +154,23 @@ UserSchema.methods.comparePassword = async function (
   candidatePassword: string
 ): Promise<boolean> {
   return await bcrypt.compare(candidatePassword, this.password);
+};
+
+// Get days until membership expiry
+UserSchema.methods.getDaysUntilExpiry = function (): number {
+  if (!this.membershipEndDate) return 0;
+  const today = new Date();
+  const endDate = new Date(this.membershipEndDate);
+  const diffTime = endDate.getTime() - today.getTime();
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  return diffDays > 0 ? diffDays : 0;
+};
+
+// Check if user is in grace period
+UserSchema.methods.isInGracePeriod = function (): boolean {
+  if (!this.gracePeriodEndDate) return false;
+  const today = new Date();
+  return today <= new Date(this.gracePeriodEndDate);
 };
 
 export default mongoose.model<IUser>('User', UserSchema);
