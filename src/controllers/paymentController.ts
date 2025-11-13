@@ -81,6 +81,14 @@ export const initiatePayment = async (req: Request, res: Response) => {
     const merchantSecret = process.env.PAYHERE_MERCHANT_SECRET!;
     const currency = 'LKR';
 
+    // Debug logging
+    console.log('=== PayHere Hash Debug ===');
+    console.log('Merchant ID:', merchantId);
+    console.log('Order ID:', orderId);
+    console.log('Amount:', amount.toFixed(2));
+    console.log('Currency:', currency);
+    console.log('Merchant Secret (first 10 chars):', merchantSecret.substring(0, 10) + '...');
+
     // Generate hash
     const hash = generatePayHereHash(
       merchantId,
@@ -89,6 +97,9 @@ export const initiatePayment = async (req: Request, res: Response) => {
       currency,
       merchantSecret
     );
+
+    console.log('Generated Hash:', hash);
+    console.log('========================');
 
     // Create pending payment record
     const payment = await Payment.create({
