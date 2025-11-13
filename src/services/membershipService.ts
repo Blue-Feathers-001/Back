@@ -52,7 +52,7 @@ export class MembershipService {
           // Create in-app notification
           if (user.notificationPreferences.inApp) {
             await Notification.createMembershipExpiryNotification(
-              user._id,
+              user._id as any,
               `Membership Expiring Soon`,
               `Your ${packageName} membership expires in ${daysUntilExpiry} ${daysUntilExpiry === 1 ? 'day' : 'days'}. Renew now to continue without interruption.`,
               user.membershipEndDate!,
