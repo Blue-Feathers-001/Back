@@ -119,7 +119,7 @@ export const initiatePayment = async (req: Request, res: Response) => {
 
     // PayHere payment data
     const paymentData = {
-      sandbox: process.env.NODE_ENV !== 'production',
+      sandbox: process.env.PAYHERE_SANDBOX === 'true',
       merchant_id: merchantId,
       return_url: `${process.env.FRONTEND_URL}/payment/success`,
       cancel_url: `${process.env.FRONTEND_URL}/payment/cancel`,
