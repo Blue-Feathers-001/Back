@@ -9,10 +9,17 @@ import passport from 'passport';
 import connectDB from './config/database';
 import authRoutes from './routes/authRoutes';
 import userRoutes from './routes/userRoutes';
+import packageRoutes from './routes/packageRoutes';
+import paymentRoutes from './routes/paymentRoutes';
+import notificationRoutes from './routes/notificationRoutes';
+import CronScheduler from './services/cronScheduler';
 import './config/passport';
 
 // Connect to database
 connectDB();
+
+// Initialize cron jobs for membership reminders
+CronScheduler.initializeJobs();
 
 const app: Application = express();
 
@@ -59,10 +66,25 @@ app.use(passport.initialize());
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/packages', packageRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Health check route
 app.get('/', (req: Request, res: Response) => {
-  res.json({ message: 'Gym Membership Management API' });
+  res.json({
+    message: 'Gym Membership Management API',
+    version: '2.0.0',
+    features: [
+      'Authentication & Authorization',
+      'User Management',
+      'Membership Packages',
+      'PayHere Payment Integration',
+      'Automated Email Notifications',
+      'In-App Notifications',
+      'Membership Expiry Tracking',
+    ],
+  });
 });
 
 const PORT = process.env.PORT || 5000;
