@@ -256,3 +256,93 @@ export const resetPassword = async (req: Request, res: Response): Promise<void> 
     res.status(500).json({ message: 'Server error', error });
   }
 };
+
+// Update user profile
+export const updateProfile = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { name, email, phone, notificationPreferences } = req.body;
+
+    const user = await User.findById(req.user?._id);
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    // Check if email is being changed and if it's already taken
+    if (email && email !== user.email) {
+      const emailExists = await User.findOne({ email });
+      if (emailExists) {
+        res.status(400).json({ message: 'Email already in use' });
+        return;
+      }
+      user.email = email;
+    }
+
+    // Update fields
+    if (name) user.name = name;
+    if (phone !== undefined) user.phone = phone; // Allow empty string to clear phone
+    if (notificationPreferences) {
+      user.notificationPreferences = {
+        ...user.notificationPreferences,
+        ...notificationPreferences,
+      };
+    }
+
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile updated successfully',
+      user,
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Change password (when user is logged in)
+export const changePassword = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+
+    if (!currentPassword || !newPassword) {
+      res.status(400).json({ message: 'Please provide current and new password' });
+      return;
+    }
+
+    const user = await User.findById(req.user?._id).select('+password');
+
+    if (!user) {
+      res.status(404).json({ message: 'User not found' });
+      return;
+    }
+
+    // Check if user has a password (OAuth users might not have one)
+    if (!user.password) {
+      res.status(400).json({ message: 'Cannot change password for OAuth accounts' });
+      return;
+    }
+
+    // Verify current password
+    const isMatch = await user.comparePassword(currentPassword);
+
+    if (!isMatch) {
+      res.status(401).json({ message: 'Current password is incorrect' });
+      return;
+    }
+
+    // Set new password (will be hashed by pre-save hook)
+    user.password = newPassword;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Password changed successfully',
+    });
+  } catch (error) {
+    console.error('Change password error:', error);
+    res.status(500).json({ message: 'Server error', error });
+  }
+};

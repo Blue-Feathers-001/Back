@@ -1,5 +1,5 @@
 import express from 'express';
-import { register, login, getMe, oauthRegister, forgotPassword, resetPassword } from '../controllers/authController';
+import { register, login, getMe, oauthRegister, forgotPassword, resetPassword, updateProfile, changePassword } from '../controllers/authController';
 import { googleCallback } from '../controllers/oauthController';
 import { protect } from '../middleware/auth';
 import passport from '../config/passport';
@@ -9,6 +9,10 @@ const router = express.Router();
 router.post('/register', register);
 router.post('/login', login);
 router.get('/me', protect, getMe);
+
+// Profile management routes
+router.put('/update-profile', protect, updateProfile);
+router.put('/change-password', protect, changePassword);
 
 // Password reset routes
 router.post('/forgot-password', forgotPassword);
