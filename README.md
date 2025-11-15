@@ -13,12 +13,41 @@ RESTful API backend for the Blue Feathers Gym membership management system.
 
 ## Features
 
-- User authentication (JWT & Google OAuth)
-- Password reset with OTP via email
-- User management with CRUD operations
-- Role-based access control (Admin/User)
-- Email notifications (welcome, password reset, membership activation)
-- Membership plan management
+- **Authentication & Authorization**
+  - User authentication (JWT & Google OAuth)
+  - Password reset with OTP via email
+  - Role-based access control (Admin/User)
+
+- **User Management**
+  - User management with CRUD operations
+  - User profile with membership details
+  - Payment history tracking per user
+
+- **Membership Management**
+  - Membership package creation and management
+  - Package categories (Basic, Premium, VIP)
+  - Active/Inactive package status
+  - Member limits per package
+  - Discount management
+
+- **Payment Processing**
+  - PayHere payment gateway integration
+  - Secure payment initiation and verification
+  - Payment status tracking (Success, Failed, Pending, Cancelled)
+  - Payment refund and chargeback handling
+  - Automatic membership activation on successful payment
+
+- **Revenue & Reporting**
+  - Weekly revenue reports with aggregated data
+  - Monthly revenue reports with package distribution
+  - Real-time payment statistics dashboard
+  - User payment history with detailed breakdown
+
+- **Notifications**
+  - Email notifications (welcome, password reset, membership activation)
+  - In-app notification system
+  - Notification preferences management
+  - Bulk notification sending (Admin)
 
 ## Prerequisites
 
@@ -81,6 +110,8 @@ The API will run on http://localhost:5000
 - `POST /api/auth/register` - Register new user
 - `POST /api/auth/login` - Login user
 - `GET /api/auth/me` - Get current user (Protected)
+- `PUT /api/auth/update-profile` - Update user profile (Protected)
+- `PUT /api/auth/change-password` - Change password (Protected)
 - `POST /api/auth/forgot-password` - Request password reset OTP
 - `POST /api/auth/reset-password` - Reset password with OTP
 - `GET /api/auth/google` - Google OAuth login
@@ -92,6 +123,36 @@ The API will run on http://localhost:5000
 - `POST /api/users` - Create user (Admin only)
 - `PUT /api/users/:id` - Update user
 - `DELETE /api/users/:id` - Delete user (Admin only)
+
+### Membership Packages
+- `GET /api/packages` - Get all packages (with optional filters)
+- `GET /api/packages/:id` - Get single package
+- `POST /api/packages` - Create package (Admin only)
+- `PUT /api/packages/:id` - Update package (Admin only)
+- `DELETE /api/packages/:id` - Delete package (Admin only)
+- `PATCH /api/packages/:id/toggle-active` - Toggle package active status (Admin only)
+- `GET /api/packages/:id/stats` - Get package statistics (Admin only)
+
+### Payments (Protected)
+- `POST /api/payments/initiate` - Initiate payment for a package
+- `POST /api/payments/notify` - PayHere webhook (Public)
+- `GET /api/payments/my-payments` - Get user's payment history
+- `GET /api/payments/order/:orderId` - Get payment by order ID
+- `GET /api/payments` - Get all payments (Admin only)
+- `GET /api/payments/stats` - Get payment statistics (Admin only)
+- `GET /api/payments/reports/weekly` - Get weekly revenue report (Admin only)
+- `GET /api/payments/reports/monthly` - Get monthly revenue report (Admin only)
+- `GET /api/payments/user/:userId` - Get user payment history (Admin only)
+
+### Notifications (Protected)
+- `GET /api/notifications` - Get user notifications
+- `GET /api/notifications/unread-count` - Get unread notification count
+- `PATCH /api/notifications/:id/read` - Mark notification as read
+- `PATCH /api/notifications/mark-all-read` - Mark all notifications as read
+- `DELETE /api/notifications/:id` - Delete notification
+- `POST /api/notifications` - Create notification (Admin only)
+- `POST /api/notifications/bulk` - Send bulk notifications (Admin only)
+- `GET /api/notifications/stats` - Get notification statistics (Admin only)
 
 ## Scripts
 
@@ -129,15 +190,22 @@ src/
 | Variable | Description | Required |
 |----------|-------------|----------|
 | PORT | Server port | No (default: 5000) |
+| NODE_ENV | Environment (development/production) | Yes |
 | MONGODB_URI | MongoDB connection string | Yes |
 | JWT_SECRET | Secret for JWT signing | Yes |
 | JWT_EXPIRE | JWT expiration time | No (default: 7d) |
 | GOOGLE_CLIENT_ID | Google OAuth client ID | No |
 | GOOGLE_CLIENT_SECRET | Google OAuth secret | No |
+| GOOGLE_CALLBACK_URL | Google OAuth callback URL | No |
+| SMTP_HOST | SMTP server host | Yes (for emails) |
+| SMTP_PORT | SMTP server port | Yes (for emails) |
 | SMTP_USER | Brevo SMTP username | Yes (for emails) |
 | SMTP_PASSWORD | Brevo SMTP password | Yes (for emails) |
 | EMAIL_FROM | Sender email address | Yes (for emails) |
 | FRONTEND_URL | Frontend application URL | Yes |
+| BACKEND_URL | Backend application URL | Yes |
+| PAYHERE_MERCHANT_ID | PayHere merchant ID | Yes (for payments) |
+| PAYHERE_MERCHANT_SECRET | PayHere merchant secret | Yes (for payments) |
 
 ## Security Features
 
