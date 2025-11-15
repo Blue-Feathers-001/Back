@@ -476,3 +476,208 @@ export const getPaymentStats = async (req: Request, res: Response) => {
     });
   }
 };
+
+// @desc    Get weekly revenue report (Admin)
+// @route   GET /api/payments/reports/weekly
+// @access  Admin only
+export const getWeeklyReport = async (req: Request, res: Response) => {
+  try {
+    const { weeks = 8 } = req.query;
+    const weeksCount = parseInt(weeks as string);
+
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - (weeksCount * 7));
+
+    const weeklyData = await Payment.aggregate([
+      {
+        $match: {
+          status: 'success',
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            week: { $week: '$createdAt' },
+          },
+          revenue: { $sum: '$amount' },
+          count: { $sum: 1 },
+          weekStart: { $min: '$createdAt' },
+        },
+      },
+      {
+        $sort: { '_id.year': 1, '_id.week': 1 },
+      },
+    ]);
+
+    const totalUsers = await User.countDocuments();
+    const activeMembers = await User.countDocuments({ membershipStatus: 'active' });
+    const expiredMembers = await User.countDocuments({ membershipStatus: 'expired' });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        weeklyData,
+        summary: {
+          totalUsers,
+          activeMembers,
+          expiredMembers,
+          totalWeeks: weeklyData.length,
+          totalRevenue: weeklyData.reduce((sum, week) => sum + week.revenue, 0),
+          totalTransactions: weeklyData.reduce((sum, week) => sum + week.count, 0),
+        },
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching weekly report',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get monthly revenue report (Admin)
+// @route   GET /api/payments/reports/monthly
+// @access  Admin only
+export const getMonthlyReport = async (req: Request, res: Response) => {
+  try {
+    const { months = 12 } = req.query;
+    const monthsCount = parseInt(months as string);
+
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - monthsCount);
+
+    const monthlyData = await Payment.aggregate([
+      {
+        $match: {
+          status: 'success',
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' },
+          },
+          revenue: { $sum: '$amount' },
+          count: { $sum: 1 },
+          monthStart: { $min: '$createdAt' },
+        },
+      },
+      {
+        $sort: { '_id.year': 1, '_id.month': 1 },
+      },
+    ]);
+
+    // Get package distribution
+    const packageDistribution = await Payment.aggregate([
+      {
+        $match: {
+          status: 'success',
+          createdAt: { $gte: startDate },
+        },
+      },
+      {
+        $lookup: {
+          from: 'membershippackages',
+          localField: 'package',
+          foreignField: '_id',
+          as: 'packageDetails',
+        },
+      },
+      {
+        $unwind: '$packageDetails',
+      },
+      {
+        $group: {
+          _id: '$packageDetails.name',
+          count: { $sum: 1 },
+          revenue: { $sum: '$amount' },
+        },
+      },
+      {
+        $sort: { revenue: -1 },
+      },
+    ]);
+
+    const totalUsers = await User.countDocuments();
+    const activeMembers = await User.countDocuments({ membershipStatus: 'active' });
+    const expiredMembers = await User.countDocuments({ membershipStatus: 'expired' });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        monthlyData,
+        packageDistribution,
+        summary: {
+          totalUsers,
+          activeMembers,
+          expiredMembers,
+          totalMonths: monthlyData.length,
+          totalRevenue: monthlyData.reduce((sum, month) => sum + month.revenue, 0),
+          totalTransactions: monthlyData.reduce((sum, month) => sum + month.count, 0),
+          averageMonthlyRevenue: monthlyData.length > 0
+            ? monthlyData.reduce((sum, month) => sum + month.revenue, 0) / monthlyData.length
+            : 0,
+        },
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching monthly report',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get user details with payment history (Admin)
+// @route   GET /api/payments/user/:userId
+// @access  Admin only
+export const getUserPaymentHistory = async (req: Request, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId)
+      .populate('membershipPackage', 'name price durationMonths category')
+      .select('-password');
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    const payments = await Payment.find({ user: userId })
+      .populate('package', 'name price durationMonths category')
+      .sort({ createdAt: -1 });
+
+    const paymentStats = {
+      totalPayments: payments.length,
+      successfulPayments: payments.filter(p => p.status === 'success').length,
+      failedPayments: payments.filter(p => p.status === 'failed').length,
+      totalSpent: payments
+        .filter(p => p.status === 'success')
+        .reduce((sum, p) => sum + p.amount, 0),
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        user,
+        payments,
+        paymentStats,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: 'Error fetching user payment history',
+      error: error.message,
+    });
+  }
+};
