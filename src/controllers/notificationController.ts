@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import Notification from '../models/Notification';
+import { io } from '../server';
 
 // @desc    Get all notifications for logged-in user
 // @route   GET /api/notifications
@@ -180,6 +181,21 @@ export const createNotification = async (req: Request, res: Response) => {
       metadata: metadata || {},
     });
 
+    // Emit real-time notification via Socket.IO
+    io.to(`user:${userId}`).emit('notification:new', {
+      _id: notification._id,
+      title: notification.title,
+      message: notification.message,
+      type: notification.type,
+      priority: notification.priority,
+      isRead: notification.isRead,
+      createdAt: notification.createdAt,
+    });
+
+    // Also emit unread count update
+    const unreadCount = await Notification.getUnreadCount(userId);
+    io.to(`user:${userId}`).emit('notification:unread-count', { count: unreadCount });
+
     res.status(201).json({
       success: true,
       message: 'Notification created successfully',
@@ -224,6 +240,23 @@ export const sendBulkNotifications = async (req: Request, res: Response) => {
     }));
 
     const createdNotifications = await Notification.insertMany(notifications);
+
+    // Emit real-time notifications via Socket.IO to each user
+    for (const notification of createdNotifications) {
+      io.to(`user:${notification.user}`).emit('notification:new', {
+        _id: notification._id,
+        title: notification.title,
+        message: notification.message,
+        type: notification.type,
+        priority: notification.priority,
+        isRead: notification.isRead,
+        createdAt: notification.createdAt,
+      });
+
+      // Update unread count for each user
+      const unreadCount = await Notification.getUnreadCount(notification.user);
+      io.to(`user:${notification.user}`).emit('notification:unread-count', { count: unreadCount });
+    }
 
     res.status(201).json({
       success: true,

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import express, { Application, Request, Response } from 'express';
+import { createServer } from 'http';
 import cors from 'cors';
 import passport from 'passport';
 import connectDB from './config/database';
@@ -13,6 +14,7 @@ import packageRoutes from './routes/packageRoutes';
 import paymentRoutes from './routes/paymentRoutes';
 import notificationRoutes from './routes/notificationRoutes';
 import CronScheduler from './services/cronScheduler';
+import { initializeSocket } from './config/socket';
 import './config/passport';
 
 // Connect to database
@@ -89,8 +91,16 @@ app.get('/', (req: Request, res: Response) => {
 
 const PORT = process.env.PORT || 5000;
 
-app.listen(PORT, () => {
+// Create HTTP server
+const httpServer = createServer(app);
+
+// Initialize Socket.IO
+export const io = initializeSocket(httpServer);
+
+// Start server
+httpServer.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
+  console.log(`Socket.IO server is ready for real-time notifications`);
 });
 
 export default app;
