@@ -5,11 +5,78 @@ import { AuthRequest } from '../middleware/auth';
 // Get all users (Admin only)
 export const getUsers = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const users = await User.find().select('-password');
+    const {
+      search,
+      membershipStatus,
+      membershipPlan,
+      joinDateFrom,
+      joinDateTo,
+      sortBy = 'createdAt',
+      sortOrder = 'desc',
+      limit,
+      page = '1'
+    } = req.query;
+
+    // Build filter object
+    const filter: any = {};
+
+    // Search across name, email, phone
+    if (search && typeof search === 'string') {
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } },
+      ];
+    }
+
+    // Filter by membership status
+    if (membershipStatus && typeof membershipStatus === 'string') {
+      filter.membershipStatus = membershipStatus;
+    }
+
+    // Filter by membership plan
+    if (membershipPlan && typeof membershipPlan === 'string') {
+      filter.membershipPlan = membershipPlan;
+    }
+
+    // Filter by join date range
+    if (joinDateFrom || joinDateTo) {
+      filter.createdAt = {};
+      if (joinDateFrom && typeof joinDateFrom === 'string') {
+        filter.createdAt.$gte = new Date(joinDateFrom);
+      }
+      if (joinDateTo && typeof joinDateTo === 'string') {
+        filter.createdAt.$lte = new Date(joinDateTo);
+      }
+    }
+
+    // Build sort object
+    const sort: any = {};
+    if (typeof sortBy === 'string') {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    }
+
+    // Pagination
+    const pageNum = parseInt(page as string) || 1;
+    const limitNum = limit ? parseInt(limit as string) : undefined;
+    const skip = limitNum ? (pageNum - 1) * limitNum : 0;
+
+    // Execute query
+    let query = User.find(filter).select('-password').sort(sort);
+
+    if (limitNum) {
+      query = query.skip(skip).limit(limitNum);
+    }
+
+    const users = await query;
+    const total = await User.countDocuments(filter);
 
     res.status(200).json({
       success: true,
       count: users.length,
+      total,
+      page: pageNum,
+      pages: limitNum ? Math.ceil(total / limitNum) : 1,
       users,
     });
   } catch (error) {
@@ -136,6 +203,60 @@ export const deleteUser = async (req: AuthRequest, res: Response): Promise<void>
     res.status(200).json({
       success: true,
       message: 'User deleted successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Bulk update users (Admin only)
+export const bulkUpdateUsers = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { userIds, updates } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ message: 'User IDs array is required' });
+      return;
+    }
+
+    if (!updates || typeof updates !== 'object') {
+      res.status(400).json({ message: 'Updates object is required' });
+      return;
+    }
+
+    // Update multiple users
+    const result = await User.updateMany(
+      { _id: { $in: userIds } },
+      { $set: updates }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `${result.modifiedCount} users updated successfully`,
+      modifiedCount: result.modifiedCount,
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Bulk delete users (Admin only)
+export const bulkDeleteUsers = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { userIds } = req.body;
+
+    if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
+      res.status(400).json({ message: 'User IDs array is required' });
+      return;
+    }
+
+    // Delete multiple users
+    const result = await User.deleteMany({ _id: { $in: userIds } });
+
+    res.status(200).json({
+      success: true,
+      message: `${result.deletedCount} users deleted successfully`,
+      deletedCount: result.deletedCount,
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });

@@ -13,6 +13,9 @@ import userRoutes from './routes/userRoutes';
 import packageRoutes from './routes/packageRoutes';
 import paymentRoutes from './routes/paymentRoutes';
 import notificationRoutes from './routes/notificationRoutes';
+import searchRoutes from './routes/searchRoutes';
+import noteRoutes from './routes/noteRoutes';
+import announcementRoutes from './routes/announcementRoutes';
 import CronScheduler from './services/cronScheduler';
 import { initializeSocket } from './config/socket';
 import './config/passport';
@@ -71,6 +74,9 @@ app.use('/api/users', userRoutes);
 app.use('/api/packages', packageRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/search', searchRoutes);
+app.use('/api/notes', noteRoutes);
+app.use('/api/announcements', announcementRoutes);
 
 // Health check route
 app.get('/', (req: Request, res: Response) => {
