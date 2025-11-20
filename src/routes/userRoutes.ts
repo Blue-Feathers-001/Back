@@ -7,13 +7,18 @@ import {
   deleteUser,
   bulkUpdateUsers,
   bulkDeleteUsers,
+  updateProfilePicture,
 } from '../controllers/userController';
 import { protect, authorize } from '../middleware/auth';
+import { upload } from '../controllers/uploadController';
 
 const router = express.Router();
 
 // All routes require authentication
 router.use(protect);
+
+// Update profile picture (authenticated users)
+router.put('/profile/picture', upload.single('avatar'), updateProfilePicture);
 
 // Get all users and create user (admin only)
 router

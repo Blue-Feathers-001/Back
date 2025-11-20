@@ -1,6 +1,7 @@
 import { Response } from 'express';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
+import { uploadToS3, deleteFromS3 } from '../services/s3Service';
 
 // Get all users (Admin only)
 export const getUsers = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -260,5 +261,70 @@ export const bulkDeleteUsers = async (req: AuthRequest, res: Response): Promise<
     });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error });
+  }
+};
+
+// Update profile picture
+export const updateProfilePicture = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: 'No image file provided',
+      });
+      return;
+    }
+
+    const userId = req.user?._id;
+    if (!userId) {
+      res.status(401).json({
+        success: false,
+        message: 'Not authorized',
+      });
+      return;
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Delete old profile picture from S3 if exists
+    if (user.avatar) {
+      try {
+        // Extract key from URL (format: https://bucket.s3.region.amazonaws.com/key)
+        const urlParts = user.avatar.split('.amazonaws.com/');
+        if (urlParts.length > 1) {
+          const oldKey = urlParts[1];
+          await deleteFromS3(oldKey);
+        }
+      } catch (error) {
+        console.error('Error deleting old profile picture:', error);
+        // Continue even if deletion fails
+      }
+    }
+
+    // Upload new profile picture
+    const result = await uploadToS3(req.file, 'profile-pictures');
+
+    // Update user avatar
+    user.avatar = result.url;
+    await user.save();
+
+    res.status(200).json({
+      success: true,
+      message: 'Profile picture updated successfully',
+      avatar: result.url,
+    });
+  } catch (error: any) {
+    console.error('Update profile picture error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to update profile picture',
+    });
   }
 };

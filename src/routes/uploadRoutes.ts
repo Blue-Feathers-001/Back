@@ -1,0 +1,16 @@
+import express from 'express';
+import { upload, uploadImage, uploadMultipleImages, deleteImage } from '../controllers/uploadController';
+import { protect, authorize } from '../middleware/auth';
+
+const router = express.Router();
+
+// Upload single image (authenticated users only)
+router.post('/single', protect, upload.single('image'), uploadImage);
+
+// Upload multiple images (authenticated users only)
+router.post('/multiple', protect, upload.array('images', 10), uploadMultipleImages);
+
+// Delete image (admin only)
+router.delete('/', protect, authorize('admin'), deleteImage);
+
+export default router;
