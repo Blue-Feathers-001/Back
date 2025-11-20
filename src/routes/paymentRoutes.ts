@@ -9,6 +9,7 @@ import {
   getWeeklyReport,
   getMonthlyReport,
   getUserPaymentHistory,
+  downloadPaymentReceipt,
 } from '../controllers/paymentController';
 import { protect, authorize } from '../middleware/auth';
 
@@ -18,6 +19,7 @@ const router = express.Router();
 router.post('/initiate', protect, initiatePayment);
 router.get('/my-payments', protect, getMyPayments);
 router.get('/order/:orderId', protect, getPaymentByOrderId);
+router.get('/receipt/:orderId', protect, downloadPaymentReceipt);
 
 // PayHere webhook (public)
 router.post('/notify', paymentNotify);

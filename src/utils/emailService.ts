@@ -10,19 +10,23 @@ const transporter = nodemailer.createTransport({
   },
 });
 
-export const sendEmail = async (to: string, subject: string, html: string) => {
+export const sendEmail = async (to: string, subject: string, html: string, attachments?: any[]) => {
   // Check if required environment variables are set
   if (!process.env.SMTP_USER || !process.env.SMTP_PASSWORD) {
     console.error('[Email] ERROR: Missing required Brevo email configuration (SMTP_USER, SMTP_PASSWORD)');
     throw new Error('Email service is not configured');
   }
 
-  const mailOptions = {
+  const mailOptions: any = {
     from: process.env.EMAIL_FROM || `"Blue Feathers Gym" <${process.env.SMTP_USER}>`,
     to,
     subject,
     html,
   };
+
+  if (attachments && attachments.length > 0) {
+    mailOptions.attachments = attachments;
+  }
 
   try {
     const info = await transporter.sendMail(mailOptions);
@@ -388,6 +392,99 @@ export const sendGracePeriodReminderEmail = async (
   return sendEmail(email, '⏰ Final Reminder: Grace Period Ending Soon', html);
 };
 
+export const sendPaymentReceiptEmail = async (
+  email: string,
+  name: string,
+  orderId: string,
+  packageName: string,
+  amount: number,
+  paymentDate: Date,
+  receiptPdfBuffer: Buffer
+) => {
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .header { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+        .content { background: #f9f9f9; padding: 30px; border-radius: 0 0 10px 10px; }
+        .success-badge { background: #d4edda; border: 2px solid #28a745; color: #155724; padding: 15px; border-radius: 8px; text-align: center; margin: 20px 0; font-weight: bold; font-size: 16px; }
+        .details-box { background: white; border: 1px solid #e0e0e0; padding: 20px; border-radius: 8px; margin: 20px 0; }
+        .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #f0f0f0; }
+        .detail-label { font-weight: 600; color: #666; }
+        .detail-value { color: #333; }
+        .amount-box { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 20px; border-radius: 8px; text-align: center; margin: 20px 0; }
+        .footer { text-align: center; margin-top: 30px; color: #666; font-size: 12px; }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <h1>Payment Receipt</h1>
+          <p style="font-size: 14px; margin-top: 10px;">Thank you for your payment!</p>
+        </div>
+        <div class="content">
+          <div class="success-badge">
+            ✓ PAYMENT SUCCESSFUL
+          </div>
+
+          <h2>Hi ${name}!</h2>
+          <p>Your payment has been successfully processed. Please find your official receipt attached to this email.</p>
+
+          <div class="details-box">
+            <h3 style="margin-top: 0; color: #667eea;">Payment Details</h3>
+            <div class="detail-row">
+              <span class="detail-label">Receipt No:</span>
+              <span class="detail-value">${orderId}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Date:</span>
+              <span class="detail-value">${paymentDate.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+              })}</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Package:</span>
+              <span class="detail-value">${packageName}</span>
+            </div>
+          </div>
+
+          <div class="amount-box">
+            <p style="margin: 0; font-size: 14px; opacity: 0.9;">Amount Paid</p>
+            <h2 style="margin: 10px 0 0 0; font-size: 32px;">LKR ${amount.toFixed(2)}</h2>
+          </div>
+
+          <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0; border-radius: 4px;">
+            <p style="margin: 0;"><strong>📎 Receipt Attached:</strong> Your detailed payment receipt is attached as a PDF file for your records.</p>
+          </div>
+
+          <p>If you have any questions about your payment or membership, please don't hesitate to contact us.</p>
+
+          <p>Best regards,<br>Blue Feathers Gym Team</p>
+        </div>
+        <div class="footer">
+          <p>&copy; 2025 Blue Feathers Gym. All rights reserved.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+  `;
+
+  const attachments = [
+    {
+      filename: `receipt-${orderId}.pdf`,
+      content: receiptPdfBuffer,
+      contentType: 'application/pdf',
+    },
+  ];
+
+  return sendEmail(email, `Payment Receipt - ${orderId}`, html, attachments);
+};
+
 export default {
   sendEmail,
   sendWelcomeEmail,
@@ -396,4 +493,5 @@ export default {
   sendMembershipExpiryReminder,
   sendMembershipExpiredEmail,
   sendGracePeriodReminderEmail,
+  sendPaymentReceiptEmail,
 };
