@@ -4,7 +4,8 @@ import Payment from '../models/Payment';
 import User from '../models/User';
 import MembershipPackage from '../models/MembershipPackage';
 import Notification from '../models/Notification';
-import { sendEmail, sendMembershipActivationEmail } from '../utils/emailService';
+import { sendEmail, sendMembershipActivationEmail, sendPaymentReceiptEmail } from '../utils/emailService';
+import { generatePaymentReceipt } from '../services/receiptService';
 
 // PayHere MD5 Hash Generation
 const generatePayHereHash = (
@@ -65,6 +66,40 @@ export const initiatePayment = async (req: Request, res: Response) => {
       return res.status(404).json({
         success: false,
         message: 'User not found',
+      });
+    }
+
+    // Prevent duplicate payment if user has active membership
+    if (user.membershipStatus === 'active' && user.membershipEndDate) {
+      const today = new Date();
+      const membershipEnd = new Date(user.membershipEndDate);
+
+      if (membershipEnd > today) {
+        return res.status(400).json({
+          success: false,
+          message: 'You already have an active membership. Please wait until it expires to purchase a new package.',
+          data: {
+            currentMembershipEndDate: membershipEnd,
+            daysRemaining: Math.ceil((membershipEnd.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)),
+          },
+        });
+      }
+    }
+
+    // Check for pending payments for this user
+    const pendingPayment = await Payment.findOne({
+      user: user._id,
+      status: 'pending',
+      createdAt: { $gte: new Date(Date.now() - 30 * 60 * 1000) }, // Within last 30 minutes
+    });
+
+    if (pendingPayment) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have a pending payment. Please complete or cancel it before initiating a new one.',
+        data: {
+          pendingOrderId: pendingPayment.orderId,
+        },
       });
     }
 
@@ -261,6 +296,34 @@ export const paymentNotify = async (req: Request, res: Response) => {
           endDate
         );
 
+        // Generate and send payment receipt PDF
+        try {
+          const populatedPayment = await Payment.findById(payment._id)
+            .populate('user', 'name email phone')
+            .populate('package', 'name price durationMonths category');
+
+          if (populatedPayment) {
+            const receiptPdfBuffer = await generatePaymentReceipt({
+              payment: populatedPayment as any,
+            });
+
+            await sendPaymentReceiptEmail(
+              user.email,
+              user.name,
+              order_id,
+              package_.name,
+              parseFloat(payhere_amount),
+              new Date(),
+              receiptPdfBuffer
+            );
+
+            console.log(`[Payment] Receipt PDF generated and sent to ${user.email}`);
+          }
+        } catch (receiptError) {
+          console.error('[Payment] Error generating/sending receipt:', receiptError);
+          // Don't fail the payment process if receipt generation fails
+        }
+
         // Create notification
         await Notification.create({
           user: user._id,
@@ -311,10 +374,32 @@ export const paymentNotify = async (req: Request, res: Response) => {
 
       // Deactivate membership if exists
       const user = await User.findById(userId);
+      const package_ = await MembershipPackage.findById(packageId);
+
       if (user && user.membershipStatus === 'active') {
         user.membershipStatus = 'expired';
         await user.save();
+
+        // Decrement package member count
+        if (package_ && package_.currentMembers > 0) {
+          package_.currentMembers -= 1;
+          await package_.save();
+        }
       }
+
+      // Create notification
+      await Notification.create({
+        user: userId,
+        title: 'Payment Refunded',
+        message: `Your payment of LKR ${payhere_amount} has been refunded due to chargeback. Your membership has been deactivated.`,
+        type: 'payment_failed',
+        priority: 'high',
+        metadata: {
+          amount: payhere_amount,
+          orderId: order_id,
+          reason: 'Chargeback',
+        },
+      });
     }
 
     res.status(200).send('OK');
@@ -371,13 +456,29 @@ export const getPaymentByOrderId = async (req: Request, res: Response) => {
 // @access  Private
 export const getMyPayments = async (req: Request, res: Response) => {
   try {
-    const payments = await Payment.find({ user: (req as any).user._id })
+    const { page = 1, limit = 50, status } = req.query;
+
+    const query: any = { user: (req as any).user._id };
+    if (status) {
+      query.status = status;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const payments = await Payment.find(query)
       .populate('package', 'name price durationMonths')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Payment.countDocuments(query);
 
     res.status(200).json({
       success: true,
       count: payments.length,
+      total,
+      pages: Math.ceil(total / Number(limit)),
+      currentPage: Number(page),
       data: payments,
     });
   } catch (error: any) {
@@ -640,6 +741,7 @@ export const getMonthlyReport = async (req: Request, res: Response) => {
 export const getUserPaymentHistory = async (req: Request, res: Response) => {
   try {
     const { userId } = req.params;
+    const { page = 1, limit = 50, status } = req.query;
 
     const user = await User.findById(userId)
       .populate('membershipPackage', 'name price durationMonths category')
@@ -652,17 +754,46 @@ export const getUserPaymentHistory = async (req: Request, res: Response) => {
       });
     }
 
-    const payments = await Payment.find({ user: userId })
-      .populate('package', 'name price durationMonths category')
-      .sort({ createdAt: -1 });
+    const query: any = { user: userId };
+    if (status) {
+      query.status = status;
+    }
 
-    const paymentStats = {
-      totalPayments: payments.length,
-      successfulPayments: payments.filter(p => p.status === 'success').length,
-      failedPayments: payments.filter(p => p.status === 'failed').length,
-      totalSpent: payments
-        .filter(p => p.status === 'success')
-        .reduce((sum, p) => sum + p.amount, 0),
+    const skip = (Number(page) - 1) * Number(limit);
+
+    const payments = await Payment.find(query)
+      .populate('package', 'name price durationMonths category')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit));
+
+    const total = await Payment.countDocuments(query);
+
+    // Calculate stats using aggregation for efficiency (not filtering all records)
+    const statsAggregation = await Payment.aggregate([
+      { $match: { user: user._id } },
+      {
+        $group: {
+          _id: null,
+          totalPayments: { $sum: 1 },
+          successfulPayments: {
+            $sum: { $cond: [{ $eq: ['$status', 'success'] }, 1, 0] },
+          },
+          failedPayments: {
+            $sum: { $cond: [{ $eq: ['$status', 'failed'] }, 1, 0] },
+          },
+          totalSpent: {
+            $sum: { $cond: [{ $eq: ['$status', 'success'] }, '$amount', 0] },
+          },
+        },
+      },
+    ]);
+
+    const paymentStats = statsAggregation[0] || {
+      totalPayments: 0,
+      successfulPayments: 0,
+      failedPayments: 0,
+      totalSpent: 0,
     };
 
     res.status(200).json({
@@ -671,12 +802,77 @@ export const getUserPaymentHistory = async (req: Request, res: Response) => {
         user,
         payments,
         paymentStats,
+        pagination: {
+          total,
+          pages: Math.ceil(total / Number(limit)),
+          currentPage: Number(page),
+          count: payments.length,
+        },
       },
     });
   } catch (error: any) {
     res.status(500).json({
       success: false,
       message: 'Error fetching user payment history',
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Download payment receipt as PDF
+// @route   GET /api/payments/receipt/:orderId
+// @access  Private (user must own the payment or be admin)
+export const downloadPaymentReceipt = async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+
+    const payment = await Payment.findOne({ orderId })
+      .populate('user', 'name email phone')
+      .populate('package', 'name price durationMonths category');
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found',
+      });
+    }
+
+    // Check authorization
+    if (
+      payment.user._id.toString() !== (req as any).user._id.toString() &&
+      (req as any).user.role !== 'admin'
+    ) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to access this receipt',
+      });
+    }
+
+    // Only generate receipts for successful payments
+    if (payment.status !== 'success') {
+      return res.status(400).json({
+        success: false,
+        message: 'Receipt is only available for successful payments',
+      });
+    }
+
+    // Generate PDF receipt
+    const receiptPdfBuffer = await generatePaymentReceipt({
+      payment: payment as any,
+    });
+
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="receipt-${orderId}.pdf"`);
+    res.setHeader('Content-Length', receiptPdfBuffer.length);
+
+    // Send PDF buffer
+    res.send(receiptPdfBuffer);
+  } catch (error: any) {
+    console.error('[Payment] Error downloading receipt:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Error generating receipt',
       error: error.message,
     });
   }
