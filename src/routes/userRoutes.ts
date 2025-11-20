@@ -8,6 +8,7 @@ import {
   bulkUpdateUsers,
   bulkDeleteUsers,
   updateProfilePicture,
+  generateUserMembershipCard,
 } from '../controllers/userController';
 import { protect, authorize } from '../middleware/auth';
 import { upload } from '../controllers/uploadController';
@@ -29,6 +30,9 @@ router
 // Bulk operations (admin only)
 router.post('/bulk/update', authorize('admin'), bulkUpdateUsers);
 router.post('/bulk/delete', authorize('admin'), bulkDeleteUsers);
+
+// Generate membership card (admin only)
+router.get('/:id/membership-card', authorize('admin'), generateUserMembershipCard);
 
 // Get, update, delete single user
 router

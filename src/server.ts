@@ -17,6 +17,7 @@ import searchRoutes from './routes/searchRoutes';
 import noteRoutes from './routes/noteRoutes';
 import announcementRoutes from './routes/announcementRoutes';
 import uploadRoutes from './routes/uploadRoutes';
+import entryRoutes from './routes/entryRoutes';
 import CronScheduler from './services/cronScheduler';
 import { initializeSocket } from './config/socket';
 import './config/passport';
@@ -79,6 +80,7 @@ app.use('/api/search', searchRoutes);
 app.use('/api/notes', noteRoutes);
 app.use('/api/announcements', announcementRoutes);
 app.use('/api/upload', uploadRoutes);
+app.use('/api/entry', entryRoutes);
 
 // Health check route
 app.get('/', (req: Request, res: Response) => {

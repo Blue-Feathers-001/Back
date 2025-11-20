@@ -2,6 +2,7 @@ import { Response } from 'express';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 import { uploadToS3, deleteFromS3 } from '../services/s3Service';
+import { generateMembershipCard } from '../services/membershipCardService';
 
 // Get all users (Admin only)
 export const getUsers = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -325,6 +326,50 @@ export const updateProfilePicture = async (req: AuthRequest, res: Response): Pro
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to update profile picture',
+    });
+  }
+};
+
+// Generate membership card (Admin only)
+export const generateUserMembershipCard = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Generate membership card PDF
+    const cardBuffer = await generateMembershipCard({
+      userId: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      membershipId: user._id.toString().slice(-8).toUpperCase(),
+      membershipPlan: user.membershipPlan || 'None',
+      membershipStatus: user.membershipStatus,
+      membershipEndDate: user.membershipEndDate,
+      phone: user.phone,
+      avatar: user.avatar,
+      createdAt: user.createdAt,
+    });
+
+    // Set response headers for PDF download
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="membership-card-${user.name.replace(/\s+/g, '-')}.pdf"`);
+    res.setHeader('Content-Length', cardBuffer.length);
+
+    res.send(cardBuffer);
+  } catch (error: any) {
+    console.error('Generate membership card error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to generate membership card',
     });
   }
 };
