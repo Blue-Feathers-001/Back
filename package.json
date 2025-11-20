@@ -23,6 +23,7 @@
     "@types/passport-google-oauth20": "^2.0.17",
     "@types/socket.io": "^3.0.1",
     "bcryptjs": "^3.0.3",
+    "canvas": "^3.2.0",
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "express": "^5.1.0",

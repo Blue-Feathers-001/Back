@@ -2,7 +2,7 @@ import { Response } from 'express';
 import User from '../models/User';
 import { AuthRequest } from '../middleware/auth';
 import { uploadToS3, deleteFromS3 } from '../services/s3Service';
-import { generateMembershipCard } from '../services/membershipCardService';
+import { generateMembershipCard, generateMembershipCardPNG } from '../services/membershipCardService';
 
 // Get all users (Admin only)
 export const getUsers = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -295,10 +295,10 @@ export const updateProfilePicture = async (req: AuthRequest, res: Response): Pro
     }
 
     // Delete old profile picture from S3 if exists
-    if (user.avatar) {
+    if (user.profileImage) {
       try {
         // Extract key from URL (format: https://bucket.s3.region.amazonaws.com/key)
-        const urlParts = user.avatar.split('.amazonaws.com/');
+        const urlParts = user.profileImage.split('.amazonaws.com/');
         if (urlParts.length > 1) {
           const oldKey = urlParts[1];
           await deleteFromS3(oldKey);
@@ -312,14 +312,14 @@ export const updateProfilePicture = async (req: AuthRequest, res: Response): Pro
     // Upload new profile picture
     const result = await uploadToS3(req.file, 'profile-pictures');
 
-    // Update user avatar
-    user.avatar = result.url;
+    // Update user profile image (S3 uploaded image)
+    user.profileImage = result.url;
     await user.save();
 
     res.status(200).json({
       success: true,
       message: 'Profile picture updated successfully',
-      avatar: result.url,
+      profileImage: result.url,
     });
   } catch (error: any) {
     console.error('Update profile picture error:', error);
@@ -346,6 +346,9 @@ export const generateUserMembershipCard = async (req: AuthRequest, res: Response
     }
 
     // Generate membership card PDF
+    // Prioritize S3 uploaded profile image over OAuth avatar
+    const avatarUrl = user.profileImage || user.avatar;
+
     const cardBuffer = await generateMembershipCard({
       userId: user._id.toString(),
       name: user.name,
@@ -355,7 +358,7 @@ export const generateUserMembershipCard = async (req: AuthRequest, res: Response
       membershipStatus: user.membershipStatus,
       membershipEndDate: user.membershipEndDate,
       phone: user.phone,
-      avatar: user.avatar,
+      avatar: avatarUrl,
       createdAt: user.createdAt,
     });
 
@@ -370,6 +373,52 @@ export const generateUserMembershipCard = async (req: AuthRequest, res: Response
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to generate membership card',
+    });
+  }
+};
+
+export const generateUserMembershipCardPNG = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params;
+
+    const user = await User.findById(id);
+
+    if (!user) {
+      res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+      return;
+    }
+
+    // Generate membership card PNG
+    // Prioritize S3 uploaded profile image over OAuth avatar
+    const avatarUrl = user.profileImage || user.avatar;
+
+    const cardBuffer = await generateMembershipCardPNG({
+      userId: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      membershipId: user._id.toString().slice(-8).toUpperCase(),
+      membershipPlan: user.membershipPlan || 'None',
+      membershipStatus: user.membershipStatus,
+      membershipEndDate: user.membershipEndDate,
+      phone: user.phone,
+      avatar: avatarUrl,
+      createdAt: user.createdAt,
+    });
+
+    // Set response headers for PNG download
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `attachment; filename="membership-card-${user.name.replace(/\s+/g, '-')}.png"`);
+    res.setHeader('Content-Length', cardBuffer.length);
+
+    res.send(cardBuffer);
+  } catch (error: any) {
+    console.error('Generate membership card PNG error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to generate membership card PNG',
     });
   }
 };

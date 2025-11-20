@@ -819,6 +819,144 @@ export const getUserPaymentHistory = async (req: Request, res: Response) => {
   }
 };
 
+// @desc    Manually complete payment (for testing when webhook doesn't work)
+// @route   POST /api/payments/manual-complete/:orderId
+// @access  Private (user must own the payment)
+export const manualCompletePayment = async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+
+    // Find payment record
+    const payment = await Payment.findOne({ orderId });
+
+    if (!payment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found',
+      });
+    }
+
+    // Check if user owns this payment
+    if (payment.user.toString() !== (req as any).user._id.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to complete this payment',
+      });
+    }
+
+    // Check if already completed
+    if (payment.status === 'success') {
+      return res.status(400).json({
+        success: false,
+        message: 'Payment already completed',
+      });
+    }
+
+    // Mark payment as success (simulate webhook)
+    await payment.markAsSuccess({
+      payment_id: `TEST_${Date.now()}`,
+      status_code: '2',
+      card_holder_name: 'Test User',
+      card_no: 'xxxx-xxxx-xxxx-1234',
+      status_message: 'Manual completion for testing',
+    });
+
+    // Get user and package
+    const user = await User.findById(payment.user);
+    const package_ = await MembershipPackage.findById(payment.package);
+
+    if (user && package_) {
+      // Calculate membership dates
+      const startDate = new Date();
+      const endDate = new Date();
+      endDate.setMonth(endDate.getMonth() + package_.durationMonths);
+
+      const gracePeriodEnd = new Date(endDate);
+      gracePeriodEnd.setDate(gracePeriodEnd.getDate() + 5); // 5 days grace period
+
+      // Update user membership
+      user.membershipPackage = package_._id as any;
+      user.membershipPlan = package_.category;
+      user.membershipStatus = 'active';
+      user.membershipStartDate = startDate;
+      user.membershipEndDate = endDate;
+      user.gracePeriodEndDate = gracePeriodEnd;
+      user.lastPaymentDate = new Date();
+      user.paymentHistory.push(payment._id as any);
+
+      await user.save();
+
+      // Update payment with membership dates
+      payment.membershipStartDate = startDate;
+      payment.membershipEndDate = endDate;
+      await payment.save();
+
+      // Increment package member count
+      package_.currentMembers += 1;
+      await package_.save();
+
+      // Send membership activation email
+      try {
+        await sendMembershipActivationEmail(
+          user.email,
+          user.name,
+          package_.name,
+          package_.price,
+          startDate,
+          endDate
+        );
+      } catch (emailError) {
+        console.error('[Payment] Error sending activation email:', emailError);
+        // Don't fail the payment if email fails
+      }
+
+      // Create notification
+      await Notification.create({
+        user: user._id,
+        title: 'Payment Successful!',
+        message: `Your payment of LKR ${payment.amount} was successful. Your ${package_.name} membership is now active until ${endDate.toLocaleDateString()}.`,
+        type: 'payment_success',
+        priority: 'high',
+        metadata: {
+          amount: payment.amount,
+          orderId: orderId,
+          packageName: package_.name,
+          membershipEndDate: endDate,
+          actionUrl: '/dashboard',
+        },
+      });
+
+      console.log(`[Payment] Manual completion successful for order ${orderId}`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Payment completed and membership activated',
+        data: {
+          payment,
+          membership: {
+            status: 'active',
+            startDate,
+            endDate,
+            gracePeriodEnd,
+          },
+        },
+      });
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'User or package not found',
+    });
+  } catch (error: any) {
+    console.error('[Payment] Manual completion error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error completing payment',
+      error: error.message,
+    });
+  }
+};
+
 // @desc    Download payment receipt as PDF
 // @route   GET /api/payments/receipt/:orderId
 // @access  Private (user must own the payment or be admin)

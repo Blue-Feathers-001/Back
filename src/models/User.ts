@@ -24,7 +24,8 @@ export interface IUser extends Document {
   };
   googleId?: string;
   authProvider?: 'local' | 'google';
-  avatar?: string;
+  avatar?: string; // OAuth profile picture
+  profileImage?: string; // S3 uploaded profile picture
   resetPasswordToken?: string;
   resetPasswordExpire?: Date;
   createdAt: Date;
@@ -67,7 +68,10 @@ const UserSchema: Schema = new Schema(
       default: 'local',
     },
     avatar: {
-      type: String,
+      type: String, // OAuth profile picture
+    },
+    profileImage: {
+      type: String, // S3 uploaded profile picture
     },
     role: {
       type: String,

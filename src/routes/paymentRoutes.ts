@@ -10,6 +10,7 @@ import {
   getMonthlyReport,
   getUserPaymentHistory,
   downloadPaymentReceipt,
+  manualCompletePayment,
 } from '../controllers/paymentController';
 import { protect, authorize } from '../middleware/auth';
 
@@ -20,6 +21,7 @@ router.post('/initiate', protect, initiatePayment);
 router.get('/my-payments', protect, getMyPayments);
 router.get('/order/:orderId', protect, getPaymentByOrderId);
 router.get('/receipt/:orderId', protect, downloadPaymentReceipt);
+router.post('/manual-complete/:orderId', protect, manualCompletePayment);
 
 // PayHere webhook (public)
 router.post('/notify', paymentNotify);
