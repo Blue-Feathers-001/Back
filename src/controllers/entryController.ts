@@ -282,23 +282,27 @@ export const getCurrentlyInGym = async (req: AuthRequest, res: Response) => {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const todayEntries = await Entry.find({
-      timestamp: { $gte: startOfDay },
-      status: 'allowed',
-    })
-      .populate('user', 'name email membershipStatus membershipPlan profileImage avatar role')
-      .sort({ timestamp: -1 });
-
-    // Get unique users (latest entry per user)
-    const uniqueUsers = new Map();
-    todayEntries.forEach((entry) => {
-      const userId = entry.user._id.toString();
-      if (!uniqueUsers.has(userId)) {
-        uniqueUsers.set(userId, entry);
-      }
-    });
-
-    const currentlyInGym = Array.from(uniqueUsers.values());
+    // OPTIMIZED: Use aggregation with $group to get unique users directly in DB
+    const currentlyInGym = await Entry.aggregate([
+      { $match: { timestamp: { $gte: startOfDay }, status: 'allowed' } },
+      { $sort: { timestamp: -1 } },
+      { $group: {
+          _id: '$user',
+          entry: { $first: '$$ROOT' }
+        }
+      },
+      { $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'userDetails',
+          pipeline: [{ $project: { name: 1, email: 1, membershipStatus: 1, membershipPlan: 1, profileImage: 1, avatar: 1, role: 1 } }]
+        }
+      },
+      { $unwind: '$userDetails' },
+      { $replaceRoot: { newRoot: { $mergeObjects: ['$entry', { user: '$userDetails' }] } } },
+      { $sort: { timestamp: -1 } }
+    ]);
 
     return res.status(200).json({
       success: true,

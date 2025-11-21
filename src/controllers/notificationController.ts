@@ -241,6 +241,13 @@ export const sendBulkNotifications = async (req: Request, res: Response) => {
 
     const createdNotifications = await Notification.insertMany(notifications);
 
+    // OPTIMIZED: Batch calculate unread counts using aggregation instead of N+1 queries
+    const unreadCounts = await Notification.aggregate([
+      { $match: { user: { $in: userIds.map(id => new (require('mongoose').Types.ObjectId)(id)) }, isRead: false } },
+      { $group: { _id: '$user', count: { $sum: 1 } } }
+    ]);
+    const countMap = new Map(unreadCounts.map((u: any) => [u._id.toString(), u.count]));
+
     // Emit real-time notifications via Socket.IO to each user
     for (const notification of createdNotifications) {
       io.to(`user:${notification.user}`).emit('notification:new', {
@@ -253,8 +260,8 @@ export const sendBulkNotifications = async (req: Request, res: Response) => {
         createdAt: notification.createdAt,
       });
 
-      // Update unread count for each user
-      const unreadCount = await Notification.getUnreadCount(notification.user);
+      // OPTIMIZED: Use pre-calculated count from aggregation
+      const unreadCount = countMap.get(notification.user.toString()) || 0;
       io.to(`user:${notification.user}`).emit('notification:unread-count', { count: unreadCount });
     }
 
