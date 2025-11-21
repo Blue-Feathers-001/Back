@@ -60,4 +60,12 @@ const FeedbackSchema: Schema = new Schema(
   }
 );
 
+// ===== PERFORMANCE INDEXES =====
+FeedbackSchema.index({ status: 1 });
+FeedbackSchema.index({ category: 1 });
+FeedbackSchema.index({ user: 1 });
+FeedbackSchema.index({ createdAt: -1 });
+FeedbackSchema.index({ status: 1, createdAt: -1 }); // Admin filtering
+FeedbackSchema.index({ category: 1, status: 1 }); // Category + status filtering
+
 export default mongoose.model<IFeedback>('Feedback', FeedbackSchema);

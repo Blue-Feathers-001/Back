@@ -195,4 +195,18 @@ UserSchema.methods.isInGracePeriod = function (): boolean {
   return today <= new Date(this.gracePeriodEndDate);
 };
 
+// ===== PERFORMANCE INDEXES =====
+// Single field indexes for common queries
+UserSchema.index({ membershipStatus: 1 });
+UserSchema.index({ role: 1 });
+UserSchema.index({ membershipEndDate: 1 });
+UserSchema.index({ isActive: 1 });
+UserSchema.index({ isFlagged: 1 });
+
+// Compound indexes for complex queries
+UserSchema.index({ role: 1, membershipStatus: 1 }); // Filter users by role and status
+UserSchema.index({ membershipStatus: 1, membershipEndDate: 1 }); // Expiring memberships
+UserSchema.index({ role: 1, isActive: 1, membershipStatus: 1 }); // Active members by role
+UserSchema.index({ membershipPackage: 1, membershipStatus: 1 }); // Package-based queries
+
 export default mongoose.model<IUser>('User', UserSchema);
