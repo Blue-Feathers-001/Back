@@ -88,52 +88,63 @@ export class MembershipService {
         membershipEndDate: {
           $lt: today,
         },
-      }).populate('membershipPackage');
+      }).populate('membershipPackage').lean();
 
       console.log(`[MembershipService] Found ${users.length} expired memberships to process`);
 
-      for (const user of users) {
-        try {
-          const packageInfo = user.membershipPackage as any;
-          const packageName = packageInfo?.name || user.membershipPlan || 'Your';
-
-          // Update user status to grace_period
-          user.membershipStatus = 'grace_period';
-          await user.save();
-
-          // Send expiry email
-          if (user.notificationPreferences.email) {
-            await sendMembershipExpiredEmail(
-              user.email,
-              user.name,
-              packageName,
-              user.membershipEndDate!
-            );
-          }
-
-          // Create in-app notification
-          if (user.notificationPreferences.inApp) {
-            await Notification.create({
-              user: user._id,
-              title: 'Membership Expired',
-              message: `Your ${packageName} membership has expired. You have a 5-day grace period to renew.`,
-              type: 'membership_expiry',
-              priority: 'high',
-              metadata: {
-                packageName,
-                membershipEndDate: user.membershipEndDate,
-                gracePeriodEndDate: user.gracePeriodEndDate,
-                actionUrl: '/dashboard/renew',
-              },
-            });
-          }
-
-          console.log(`[MembershipService] Expired membership for ${user.email}`);
-        } catch (error) {
-          console.error(`[MembershipService] Error expiring membership for ${user.email}:`, error);
-        }
+      if (users.length === 0) {
+        return { success: true, count: 0 };
       }
 
+      // OPTIMIZED: Bulk update all users to grace_period status
+      const userIds = users.map(u => u._id);
+      await User.updateMany(
+        { _id: { $in: userIds } },
+        { $set: { membershipStatus: 'grace_period' } }
+      );
+
+      // OPTIMIZED: Batch create notifications
+      const notifications = users
+        .filter(user => user.notificationPreferences?.inApp)
+        .map(user => {
+          const packageInfo = user.membershipPackage as any;
+          const packageName = packageInfo?.name || user.membershipPlan || 'Your';
+          return {
+            user: user._id,
+            title: 'Membership Expired',
+            message: `Your ${packageName} membership has expired. You have a 5-day grace period to renew.`,
+            type: 'membership_expiry',
+            priority: 'high',
+            metadata: {
+              packageName,
+              membershipEndDate: user.membershipEndDate,
+              gracePeriodEndDate: user.gracePeriodEndDate,
+              actionUrl: '/dashboard/renew',
+            },
+          };
+        });
+
+      if (notifications.length > 0) {
+        await Notification.insertMany(notifications);
+      }
+
+      // Send emails (can't batch these, but run in parallel)
+      const emailPromises = users
+        .filter(user => user.notificationPreferences?.email)
+        .map(user => {
+          const packageInfo = user.membershipPackage as any;
+          const packageName = packageInfo?.name || user.membershipPlan || 'Your';
+          return sendMembershipExpiredEmail(
+            user.email,
+            user.name,
+            packageName,
+            user.membershipEndDate!
+          ).catch(err => console.error(`[MembershipService] Email error for ${user.email}:`, err));
+        });
+
+      await Promise.allSettled(emailPromises);
+
+      console.log(`[MembershipService] Expired ${users.length} memberships`);
       return { success: true, count: users.length };
     } catch (error) {
       console.error('[MembershipService] Error in expireMemberships:', error);
