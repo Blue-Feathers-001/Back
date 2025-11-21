@@ -20,6 +20,8 @@ import uploadRoutes from './routes/uploadRoutes';
 import entryRoutes from './routes/entryRoutes';
 import trainerRoutes from './routes/trainerRoutes';
 import chatRoutes from './routes/chatRoutes';
+import feedbackRoutes from './routes/feedbackRoutes';
+import dashboardRoutes from './routes/dashboardRoutes';
 import CronScheduler from './services/cronScheduler';
 import { initializeSocket } from './config/socket';
 import './config/passport';
@@ -85,6 +87,8 @@ app.use('/api/upload', uploadRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/trainers', trainerRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/feedback', feedbackRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Health check route
 app.get('/', (req: Request, res: Response) => {
