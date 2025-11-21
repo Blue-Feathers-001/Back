@@ -6,7 +6,8 @@ export interface IUser extends Document {
   email: string;
   password?: string;
   phone?: string;
-  role: 'admin' | 'user';
+  role: 'admin' | 'user' | 'trainer';
+  isActive: boolean;
   membershipStatus: 'active' | 'inactive' | 'expired' | 'grace_period';
   membershipPackage?: mongoose.Types.ObjectId;
   membershipPlan?: string;
@@ -26,6 +27,9 @@ export interface IUser extends Document {
   authProvider?: 'local' | 'google';
   avatar?: string; // OAuth profile picture
   profileImage?: string; // S3 uploaded profile picture
+  isFlagged?: boolean; // Flagged for suspicious activity
+  flaggedAt?: Date; // When user was flagged
+  flagReason?: string; // Reason for flagging
   resetPasswordToken?: string;
   resetPasswordExpire?: Date;
   createdAt: Date;
@@ -75,8 +79,12 @@ const UserSchema: Schema = new Schema(
     },
     role: {
       type: String,
-      enum: ['admin', 'user'],
+      enum: ['admin', 'user', 'trainer'],
       default: 'user',
+    },
+    isActive: {
+      type: Boolean,
+      default: true,
     },
     membershipStatus: {
       type: String,
@@ -130,6 +138,16 @@ const UserSchema: Schema = new Schema(
         type: [Number],
         default: [7, 3, 1],
       },
+    },
+    isFlagged: {
+      type: Boolean,
+      default: false,
+    },
+    flaggedAt: {
+      type: Date,
+    },
+    flagReason: {
+      type: String,
     },
     resetPasswordToken: {
       type: String,

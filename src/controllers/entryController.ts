@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import Entry from '../models/Entry';
 import User from '../models/User';
+import { AuthRequest } from '../middleware/auth';
 
 // Scan QR code and validate entry
 export const scanEntry = async (req: Request, res: Response) => {
@@ -33,22 +34,28 @@ export const scanEntry = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if user's membership is active
-    const isActive = user.membershipStatus === 'active';
-    const hasExpired = user.membershipEndDate && new Date(user.membershipEndDate) < new Date();
-
+    // Trainers are always allowed - no membership check needed
     let entryStatus: 'allowed' | 'denied';
     let reason: string;
 
-    if (!isActive) {
-      entryStatus = 'denied';
-      reason = 'Membership inactive';
-    } else if (hasExpired) {
-      entryStatus = 'denied';
-      reason = 'Membership expired';
-    } else {
+    if (user.role === 'trainer') {
       entryStatus = 'allowed';
-      reason = 'Valid membership';
+      reason = 'Trainer access';
+    } else {
+      // Check if user's membership is active
+      const isActive = user.membershipStatus === 'active';
+      const hasExpired = user.membershipEndDate && new Date(user.membershipEndDate) < new Date();
+
+      if (!isActive) {
+        entryStatus = 'denied';
+        reason = 'Membership inactive';
+      } else if (hasExpired) {
+        entryStatus = 'denied';
+        reason = 'Membership expired';
+      } else {
+        entryStatus = 'allowed';
+        reason = 'Valid membership';
+      }
     }
 
     // Check for duplicate entry within last 5 minutes (prevent card sharing)
@@ -62,6 +69,28 @@ export const scanEntry = async (req: Request, res: Response) => {
     if (recentEntry) {
       entryStatus = 'denied';
       reason = 'Already checked in recently';
+    }
+
+    // Check for suspicious activity (5 denied attempts in same day)
+    if (entryStatus === 'denied') {
+      const startOfDay = new Date();
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const deniedToday = await Entry.countDocuments({
+        user: userId,
+        status: 'denied',
+        timestamp: { $gte: startOfDay },
+      });
+
+      // If this will be the 5th denial today, flag user as suspicious
+      if (deniedToday + 1 >= 5 && !user.isFlagged) {
+        user.isFlagged = true;
+        user.flaggedAt = new Date();
+        user.flagReason = `${deniedToday + 1} denied entries in one day`;
+        await user.save();
+
+        console.log(`[Security Alert] User ${user.name} (${user._id}) flagged for ${deniedToday + 1} denied entries today`);
+      }
     }
 
     // Log entry
@@ -123,7 +152,7 @@ export const getEntryLogs = async (req: Request, res: Response) => {
     }
 
     const entries = await Entry.find(query)
-      .populate('user', 'name email membershipPlan membershipStatus avatar')
+      .populate('user', 'name email membershipPlan membershipStatus avatar role')
       .sort({ timestamp: -1 })
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit));
@@ -195,6 +224,146 @@ export const getEntryStats = async (req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       message: 'Failed to fetch entry stats',
+      error: error.message,
+    });
+  }
+};
+
+// Get user's own check-in history (authenticated users - only allowed entries)
+export const getUserCheckInHistory = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?._id;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Unauthorized',
+      });
+    }
+
+    // Only show allowed entries to regular users
+    const entries = await Entry.find({
+      user: userId,
+      status: 'allowed', // Filter out denied entries
+    })
+      .sort({ timestamp: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit));
+
+    const total = await Entry.countDocuments({
+      user: userId,
+      status: 'allowed',
+    });
+
+    return res.status(200).json({
+      success: true,
+      entries,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (error: any) {
+    console.error('[Entry] Get user history error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch check-in history',
+      error: error.message,
+    });
+  }
+};
+
+// Get users currently in gym (admin/trainer)
+export const getCurrentlyInGym = async (req: AuthRequest, res: Response) => {
+  try {
+    // Get entries from today
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+
+    const todayEntries = await Entry.find({
+      timestamp: { $gte: startOfDay },
+      status: 'allowed',
+    })
+      .populate('user', 'name email membershipStatus membershipPlan profileImage avatar role')
+      .sort({ timestamp: -1 });
+
+    // Get unique users (latest entry per user)
+    const uniqueUsers = new Map();
+    todayEntries.forEach((entry) => {
+      const userId = entry.user._id.toString();
+      if (!uniqueUsers.has(userId)) {
+        uniqueUsers.set(userId, entry);
+      }
+    });
+
+    const currentlyInGym = Array.from(uniqueUsers.values());
+
+    return res.status(200).json({
+      success: true,
+      count: currentlyInGym.length,
+      entries: currentlyInGym,
+    });
+  } catch (error: any) {
+    console.error('[Entry] Get currently in gym error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch currently in gym',
+      error: error.message,
+    });
+  }
+};
+
+// Get flagged users (admin/trainer)
+export const getFlaggedUsers = async (req: AuthRequest, res: Response) => {
+  try {
+    const flaggedUsers = await User.find({
+      isFlagged: true,
+    }).select('name email membershipStatus membershipPlan profileImage avatar isFlagged flaggedAt flagReason role');
+
+    return res.status(200).json({
+      success: true,
+      count: flaggedUsers.length,
+      users: flaggedUsers,
+    });
+  } catch (error: any) {
+    console.error('[Entry] Get flagged users error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to fetch flagged users',
+      error: error.message,
+    });
+  }
+};
+
+// Clear user flag (admin only)
+export const clearUserFlag = async (req: AuthRequest, res: Response) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found',
+      });
+    }
+
+    user.isFlagged = false;
+    user.flaggedAt = undefined;
+    user.flagReason = undefined;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: 'User flag cleared successfully',
+    });
+  } catch (error: any) {
+    console.error('[Entry] Clear flag error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to clear user flag',
       error: error.message,
     });
   }
