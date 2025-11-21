@@ -28,10 +28,10 @@ export const submitFeedback = async (req: Request, res: Response) => {
     });
 
     // Send email notification to admin (async, non-blocking)
-    sendEmail({
-      to: process.env.ADMIN_EMAIL || 'admin@bluefeathers.com',
-      subject: `New Feedback: ${category}`,
-      html: `
+    sendEmail(
+      process.env.ADMIN_EMAIL || 'admin@bluefeathers.com',
+      `New Feedback: ${category}`,
+      `
         <h2>New Feedback Received</h2>
         <p><strong>From:</strong> ${isAnonymous ? 'Anonymous' : name}</p>
         <p><strong>Email:</strong> ${isAnonymous ? 'Hidden' : email}</p>
@@ -39,8 +39,8 @@ export const submitFeedback = async (req: Request, res: Response) => {
         <p><strong>Message:</strong></p>
         <p>${message}</p>
         <p><strong>Submitted:</strong> ${new Date().toLocaleString()}</p>
-      `,
-    }).catch(emailError => {
+      `
+    ).catch(emailError => {
       console.error('[Feedback] Failed to send email notification:', emailError);
     });
 
@@ -172,10 +172,10 @@ export const addAdminResponse = async (req: AuthRequest, res: Response) => {
 
     // Send email to user if they're not anonymous and have an email (async, non-blocking)
     if (!feedback.isAnonymous && feedback.email) {
-      sendEmail({
-        to: feedback.email,
-        subject: `Response to Your Feedback: ${feedback.category}`,
-        html: `
+      sendEmail(
+        feedback.email,
+        `Response to Your Feedback: ${feedback.category}`,
+        `
           <h2>Response to Your Feedback</h2>
           <p>Hi ${feedback.name},</p>
           <p>Thank you for your feedback. Here's our response:</p>
@@ -189,8 +189,8 @@ export const addAdminResponse = async (req: AuthRequest, res: Response) => {
           </div>
           <p>If you have any further questions, please don't hesitate to reach out.</p>
           <p>Best regards,<br>Blue Feathers Gym Team</p>
-        `,
-      }).catch(emailError => {
+        `
+      ).catch(emailError => {
         console.error('[Feedback] Failed to send response email:', emailError);
       });
     }
