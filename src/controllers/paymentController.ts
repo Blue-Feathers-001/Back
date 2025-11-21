@@ -616,10 +616,22 @@ export const getWeeklyReport = async (req: Request, res: Response) => {
     const activeMembers = await User.countDocuments({ membershipStatus: 'active' });
     const expiredMembers = await User.countDocuments({ membershipStatus: 'expired' });
 
+    // Get detailed transactions with user and package info
+    const detailedTransactions = await Payment.find({
+      status: 'success',
+      createdAt: { $gte: startDate },
+    })
+      .populate('user', 'name email')
+      .populate('package', 'name price durationMonths')
+      .sort({ createdAt: -1 })
+      .limit(100)
+      .lean();
+
     res.status(200).json({
       success: true,
       data: {
         weeklyData,
+        detailedTransactions,
         summary: {
           totalUsers,
           activeMembers,
