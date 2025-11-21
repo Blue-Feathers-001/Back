@@ -6,6 +6,7 @@ dotenv.config();
 import express, { Application, Request, Response } from 'express';
 import { createServer } from 'http';
 import cors from 'cors';
+import compression from 'compression';
 import passport from 'passport';
 import connectDB from './config/database';
 import authRoutes from './routes/authRoutes';
@@ -70,8 +71,18 @@ app.use(cors({
   maxAge: 86400, // 24 hours
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// OPTIMIZED: Enable gzip compression for responses
+app.use(compression({
+  level: 6,                    // Compression level (1-9)
+  threshold: 1024,             // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  },
+}));
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(passport.initialize());
 
 // Routes
