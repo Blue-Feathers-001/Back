@@ -535,26 +535,30 @@ export const getAllPayments = async (req: Request, res: Response) => {
 // @access  Admin only
 export const getPaymentStats = async (req: Request, res: Response) => {
   try {
-    const totalPayments = await Payment.countDocuments();
-    const successfulPayments = await Payment.countDocuments({ status: 'success' });
-    const failedPayments = await Payment.countDocuments({ status: 'failed' });
-    const pendingPayments = await Payment.countDocuments({ status: 'pending' });
+    // OPTIMIZED: Run all queries in parallel using Promise.all
+    const oneMonthAgo = new Date();
+    oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
 
-    const totalRevenue = await Payment.aggregate([
-      { $match: { status: 'success' } },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
-    ]);
-
-    const monthlyRevenue = await Payment.aggregate([
-      {
-        $match: {
-          status: 'success',
-          createdAt: {
-            $gte: new Date(new Date().setMonth(new Date().getMonth() - 1)),
-          },
-        },
-      },
-      { $group: { _id: null, total: { $sum: '$amount' } } },
+    const [
+      totalPayments,
+      successfulPayments,
+      failedPayments,
+      pendingPayments,
+      totalRevenue,
+      monthlyRevenue
+    ] = await Promise.all([
+      Payment.countDocuments(),
+      Payment.countDocuments({ status: 'success' }),
+      Payment.countDocuments({ status: 'failed' }),
+      Payment.countDocuments({ status: 'pending' }),
+      Payment.aggregate([
+        { $match: { status: 'success' } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ]),
+      Payment.aggregate([
+        { $match: { status: 'success', createdAt: { $gte: oneMonthAgo } } },
+        { $group: { _id: null, total: { $sum: '$amount' } } },
+      ])
     ]);
 
     res.status(200).json({

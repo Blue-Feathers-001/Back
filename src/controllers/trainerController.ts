@@ -39,10 +39,11 @@ export const getActiveMembers = async (req: AuthRequest, res: Response): Promise
       sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
     }
 
-    // Execute query - exclude sensitive fields
+    // Execute query - exclude sensitive fields, use lean() for performance
     const members = await User.find(filter)
       .select('name email phone membershipStatus membershipPlan membershipEndDate profileImage avatar')
-      .sort(sort);
+      .sort(sort)
+      .lean();
 
     res.status(200).json({
       success: true,
@@ -64,48 +65,17 @@ export const getAttendanceStats = async (req: AuthRequest, res: Response): Promi
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
 
-    // Get total entries in period
-    const totalEntries = await Entry.countDocuments({
-      timestamp: { $gte: startDate },
-    });
-
-    // Get allowed entries
-    const allowedEntries = await Entry.countDocuments({
-      timestamp: { $gte: startDate },
-      status: 'allowed',
-    });
-
-    // Get denied entries
-    const deniedEntries = await Entry.countDocuments({
-      timestamp: { $gte: startDate },
-      status: 'denied',
-    });
-
-    // Get unique users who checked in
-    const uniqueUsers = await Entry.distinct('user', {
-      timestamp: { $gte: startDate },
-      status: 'allowed',
-    });
-
-    // Get daily breakdown
-    const dailyStats = await Entry.aggregate([
-      {
-        $match: {
-          timestamp: { $gte: startDate },
-        },
-      },
-      {
-        $group: {
-          _id: {
-            date: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } },
-            status: '$status',
-          },
-          count: { $sum: 1 },
-        },
-      },
-      {
-        $sort: { '_id.date': 1 },
-      },
+    // OPTIMIZED: Run all queries in parallel
+    const [totalEntries, allowedEntries, deniedEntries, uniqueUsers, dailyStats] = await Promise.all([
+      Entry.countDocuments({ timestamp: { $gte: startDate } }),
+      Entry.countDocuments({ timestamp: { $gte: startDate }, status: 'allowed' }),
+      Entry.countDocuments({ timestamp: { $gte: startDate }, status: 'denied' }),
+      Entry.distinct('user', { timestamp: { $gte: startDate }, status: 'allowed' }),
+      Entry.aggregate([
+        { $match: { timestamp: { $gte: startDate } } },
+        { $group: { _id: { date: { $dateToString: { format: '%Y-%m-%d', date: '$timestamp' } }, status: '$status' }, count: { $sum: 1 } } },
+        { $sort: { '_id.date': 1 } },
+      ])
     ]);
 
     // Get peak hours (last 7 days)
