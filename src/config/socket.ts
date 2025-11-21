@@ -89,6 +89,41 @@ export const initializeSocket = (httpServer: HTTPServer): Server => {
       message: 'Connected to notification service',
       userId: socket.userId,
     });
+
+    // Chat events
+    // Join a chat room
+    socket.on('join_chat', (chatId: string) => {
+      socket.join(`chat:${chatId}`);
+      console.log(`User ${socket.userId} joined chat: ${chatId}`);
+    });
+
+    // Leave a chat room
+    socket.on('leave_chat', (chatId: string) => {
+      socket.leave(`chat:${chatId}`);
+      console.log(`User ${socket.userId} left chat: ${chatId}`);
+    });
+
+    // Send a message (real-time)
+    socket.on('send_message', (data: { chatId: string; message: any }) => {
+      // Broadcast to other users in the chat room
+      socket.to(`chat:${data.chatId}`).emit('new_message', data.message);
+      console.log(`Message sent to chat ${data.chatId} by user ${socket.userId}`);
+    });
+
+    // Typing indicator
+    socket.on('typing', (data: { chatId: string; userName: string }) => {
+      socket.to(`chat:${data.chatId}`).emit('user_typing', {
+        userId: socket.userId,
+        userName: data.userName,
+      });
+    });
+
+    // Stop typing indicator
+    socket.on('stop_typing', (chatId: string) => {
+      socket.to(`chat:${chatId}`).emit('user_stop_typing', {
+        userId: socket.userId,
+      });
+    });
   });
 
   console.log('Socket.IO server initialized');

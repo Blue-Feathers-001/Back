@@ -19,12 +19,31 @@ const fileFilter = (
   }
 };
 
-// Multer upload configuration
+// File filter for chat uploads (any file)
+const chatFileFilter = (
+  req: Express.Request,
+  file: Express.Multer.File,
+  cb: multer.FileFilterCallback
+) => {
+  // Accept any file for chat
+  cb(null, true);
+};
+
+// Multer upload configuration for images
 export const upload = multer({
   storage: storage,
   fileFilter: fileFilter,
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB max file size
+  },
+});
+
+// Multer upload configuration for chat files
+export const chatUpload = multer({
+  storage: storage,
+  fileFilter: chatFileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
   },
 });
 
@@ -84,6 +103,39 @@ export const uploadMultipleImages = async (req: Request, res: Response): Promise
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to upload files',
+    });
+  }
+};
+
+// Upload chat file (any file type)
+export const uploadChatFile = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.file) {
+      res.status(400).json({
+        success: false,
+        message: 'No file uploaded',
+      });
+      return;
+    }
+
+    const result = await uploadToS3(req.file, 'chat-files');
+
+    res.status(200).json({
+      success: true,
+      message: 'File uploaded successfully',
+      data: {
+        url: result.url,
+        key: result.key,
+        fileName: req.file.originalname,
+        fileSize: req.file.size,
+        fileType: req.file.mimetype,
+      },
+    });
+  } catch (error: any) {
+    console.error('Chat file upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Failed to upload file',
     });
   }
 };
