@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { IUser } from '../models/User';
+import { cache, CacheKeys, CacheTTL } from '../utils/cache';
 
 interface JwtPayload {
   id: string;
@@ -36,7 +37,17 @@ export const protect = async (
         process.env.JWT_SECRET as string
       ) as JwtPayload;
 
-      const user = await User.findById(decoded.id);
+      // OPTIMIZED: Check cache first, then DB with lean() for performance
+      const cacheKey = CacheKeys.user(decoded.id);
+      let user = cache.get<IUser>(cacheKey);
+
+      if (!user) {
+        const dbUser = await User.findById(decoded.id).lean();
+        if (dbUser) {
+          user = dbUser as unknown as IUser;
+          cache.set(cacheKey, user, CacheTTL.USER);
+        }
+      }
 
       if (!user) {
         res.status(401).json({ message: 'User not found' });
@@ -52,6 +63,11 @@ export const protect = async (
   } catch (error) {
     res.status(500).json({ message: 'Server error' });
   }
+};
+
+// Invalidate user cache when user data changes
+export const invalidateUserCache = (userId: string): void => {
+  cache.delete(CacheKeys.user(userId));
 };
 
 export const authorize = (...roles: string[]) => {
