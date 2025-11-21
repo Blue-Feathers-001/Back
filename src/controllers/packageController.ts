@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import MembershipPackage from '../models/MembershipPackage';
 import User from '../models/User';
+import { cache, CacheKeys, CacheTTL } from '../utils/cache';
 
 // @desc    Get all membership packages
 // @route   GET /api/packages
@@ -18,9 +19,19 @@ export const getAllPackages = async (req: Request, res: Response) => {
       query.category = category;
     }
 
+    // OPTIMIZED: Cache packages list (rarely changes)
+    const cacheKey = `${CacheKeys.packages()}:${active || 'all'}:${category || 'all'}`;
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      return res.status(200).json({ success: true, count: (cached as any[]).length, data: cached, cached: true });
+    }
+
     const packages = await MembershipPackage.find(query)
       .populate('createdBy', 'name email')
-      .sort({ category: 1, price: 1 });
+      .sort({ category: 1, price: 1 })
+      .lean();
+
+    cache.set(cacheKey, packages, CacheTTL.PACKAGES);
 
     res.status(200).json({
       success: true,
@@ -103,6 +114,9 @@ export const createPackage = async (req: Request, res: Response) => {
       createdBy: (req as any).user._id,
     });
 
+    // Invalidate packages cache
+    cache.deletePattern('^packages:');
+
     res.status(201).json({
       success: true,
       message: 'Package created successfully',
@@ -157,6 +171,9 @@ export const updatePackage = async (req: Request, res: Response) => {
 
     await package_.save();
 
+    // Invalidate packages cache
+    cache.deletePattern('^packages:');
+
     res.status(200).json({
       success: true,
       message: 'Package updated successfully',
@@ -199,6 +216,9 @@ export const deletePackage = async (req: Request, res: Response) => {
     }
 
     await MembershipPackage.findByIdAndDelete(req.params.id);
+
+    // Invalidate packages cache
+    cache.deletePattern('^packages:');
 
     res.status(200).json({
       success: true,
@@ -249,7 +269,7 @@ export const togglePackageActive = async (req: Request, res: Response) => {
 // @access  Admin only
 export const getPackageStats = async (req: Request, res: Response) => {
   try {
-    const package_ = await MembershipPackage.findById(req.params.id);
+    const package_ = await MembershipPackage.findById(req.params.id).lean();
 
     if (!package_) {
       return res.status(404).json({
@@ -258,23 +278,12 @@ export const getPackageStats = async (req: Request, res: Response) => {
       });
     }
 
-    // Count active members
-    const activeMembers = await User.countDocuments({
-      membershipPackage: package_._id,
-      membershipStatus: 'active',
-    });
-
-    // Count members in grace period
-    const gracePeriodMembers = await User.countDocuments({
-      membershipPackage: package_._id,
-      membershipStatus: 'grace_period',
-    });
-
-    // Count expired members
-    const expiredMembers = await User.countDocuments({
-      membershipPackage: package_._id,
-      membershipStatus: 'expired',
-    });
+    // OPTIMIZED: Run all count queries in parallel
+    const [activeMembers, gracePeriodMembers, expiredMembers] = await Promise.all([
+      User.countDocuments({ membershipPackage: package_._id, membershipStatus: 'active' }),
+      User.countDocuments({ membershipPackage: package_._id, membershipStatus: 'grace_period' }),
+      User.countDocuments({ membershipPackage: package_._id, membershipStatus: 'expired' }),
+    ]);
 
     res.status(200).json({
       success: true,
@@ -286,7 +295,7 @@ export const getPackageStats = async (req: Request, res: Response) => {
           expiredMembers,
           totalMembers: activeMembers + gracePeriodMembers + expiredMembers,
           availableSlots: package_.maxMembers
-            ? package_.maxMembers - package_.currentMembers
+            ? package_.maxMembers - (package_ as any).currentMembers
             : null,
         },
       },
